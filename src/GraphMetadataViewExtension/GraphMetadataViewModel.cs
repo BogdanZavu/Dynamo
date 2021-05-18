@@ -1,0 +1,177 @@
+﻿using System;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Windows.Media.Imaging;
+using Dynamo.Core;
+using Dynamo.Graph.Workspaces;
+using Dynamo.GraphMetadata.Controls;
+using Dynamo.UI.Commands;
+using Dynamo.Wpf.Extensions;
+
+namespace Dynamo.GraphMetadata
+{
+    public class GraphMetadataViewModel : NotificationObject
+    {
+        private readonly ViewLoadedParams viewLoadedParams;
+        private HomeWorkspaceModel currentWorkspace;
+
+        public DelegateCommand AddCustomPropertyCommand { get; set; }
+
+        public string GraphDescription
+        {
+            get { return currentWorkspace.Description; }
+            set { currentWorkspace.Description = value; RaisePropertyChanged(nameof(GraphDescription)); }
+        }
+
+        public string GraphAuthor
+        {
+            get { return currentWorkspace.Author; }
+            set { currentWorkspace.Author = value; RaisePropertyChanged(nameof(GraphAuthor)); }
+        }
+
+        public Uri HelpLink
+        {
+            get { return currentWorkspace.GraphDocumentationURL; }
+            set { currentWorkspace.GraphDocumentationURL = value; RaisePropertyChanged(nameof(HelpLink)); }
+        }
+
+        public BitmapImage Thumbnail
+        {
+            get
+            {
+                var bitmap = ImageFromBase64(currentWorkspace.Thumbnail);
+                return bitmap;
+            }
+            set
+            {
+                var base64 = value is null ? string.Empty : Base64FromImage(value);
+                currentWorkspace.Thumbnail = base64;
+                RaisePropertyChanged(nameof(Thumbnail));
+            }
+        }
+
+        public ObservableCollection<CustomPropertyControl> CustomProperties { get; set; }
+
+        public GraphMetadataViewModel(ViewLoadedParams viewLoadedParams)
+        {
+            this.viewLoadedParams = viewLoadedParams;
+            this.currentWorkspace = viewLoadedParams.CurrentWorkspaceModel as HomeWorkspaceModel;
+
+            this.viewLoadedParams.CurrentWorkspaceChanged += OnCurrentWorkspaceChanged;
+            // using this as CurrentWorkspaceChanged wont trigger if you:
+            // Close a saved workspace and open a New homeworkspace..
+            // This means that properties defined in the previous opened workspace will still be showed in the extension.
+            // CurrentWorkspaceCleared will trigger everytime a graph is closed which allows us to reset the properties. 
+            this.viewLoadedParams.CurrentWorkspaceCleared += OnCurrentWorkspaceChanged;
+
+            CustomProperties = new ObservableCollection<CustomPropertyControl>();
+            InitializeCommands();
+        }
+
+        private void OnCurrentWorkspaceChanged(Graph.Workspaces.IWorkspaceModel obj)
+        {
+            if (!(obj is HomeWorkspaceModel hwm)) return;
+
+            if (string.IsNullOrEmpty(hwm.FileName))
+            {
+                GraphDescription = string.Empty;
+                GraphAuthor = string.Empty;
+                HelpLink = null;
+                Thumbnail = null;
+            }
+
+            else
+            {
+                currentWorkspace = hwm;
+                RaisePropertyChanged(nameof(GraphDescription));
+                RaisePropertyChanged(nameof(GraphAuthor));
+                RaisePropertyChanged(nameof(HelpLink));
+                RaisePropertyChanged(nameof(Thumbnail));
+            }
+
+
+            CustomProperties.Clear();
+        }
+
+        private static BitmapImage ImageFromBase64(string b64string)
+        {
+            if (string.IsNullOrEmpty(b64string))
+            {
+                throw new ArgumentException($"'{nameof(b64string)}' cannot be null or empty.", nameof(b64string));
+            }
+
+            var bytes = Convert.FromBase64String(b64string);
+
+            using (var stream = new MemoryStream(bytes))
+            {
+                BitmapImage bitmapImage = new BitmapImage();
+                bitmapImage.BeginInit();
+                bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                bitmapImage.StreamSource = stream;
+                bitmapImage.EndInit();
+                return bitmapImage;
+            }            
+        }
+
+        private static string Base64FromImage(BitmapImage source)
+        {
+            if (source is null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            byte[] data;
+            JpegBitmapEncoder encoder = new JpegBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(source));
+            using (MemoryStream ms = new MemoryStream())
+            {
+                encoder.Save(ms);
+                data = ms.ToArray();
+            }
+
+            return Convert.ToBase64String(data);
+        }
+
+        private void InitializeCommands()
+        {
+            this.AddCustomPropertyCommand = new DelegateCommand(AddCustomPropertyExecute);
+        }
+
+        private void AddCustomPropertyExecute(object obj)
+        {
+            var propName = $"Custom Property {CustomProperties.Count + 1}";
+            AddCustomProperty(propName, string.Empty);
+        }
+
+        internal void AddCustomProperty(string propertyName, string propertyValue)
+        {
+            var control = new CustomPropertyControl
+            {
+                PropertyName = propertyName,
+                PropertyValue = propertyValue
+            };
+
+            control.RequestDelete += HandleDeleteRequest;
+            CustomProperties.Add(control);
+        }
+
+        private void HandleDeleteRequest(object sender, EventArgs e)
+        {
+            if (sender is CustomPropertyControl customProperty)
+            {
+                customProperty.RequestDelete -= HandleDeleteRequest;
+                CustomProperties.Remove(customProperty);
+            }
+        }
+
+       public void Dispose()
+       {
+            this.viewLoadedParams.CurrentWorkspaceChanged -= OnCurrentWorkspaceChanged;
+
+            foreach (var cp in CustomProperties)
+            {
+                cp.RequestDelete -= HandleDeleteRequest;
+            }
+       }
+    }
+}
