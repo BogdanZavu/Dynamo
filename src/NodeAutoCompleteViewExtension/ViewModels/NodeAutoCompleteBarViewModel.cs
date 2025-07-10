@@ -808,11 +808,11 @@ namespace Dynamo.NodeAutoComplete.ViewModels
         // Delete all transient nodes in the workspace
         internal void DeleteTransientNodes()
         {
-            var node = PortViewModel.NodeViewModel;
-            var wsViewModel = node.WorkspaceViewModel;
+            var node = PortViewModel?.NodeViewModel;
+            var wsViewModel = node?.WorkspaceViewModel;
 
-            var transientNodes = wsViewModel.Nodes.Where(x => x.IsTransient).ToList();
-            if (transientNodes.Any())
+            var transientNodes = wsViewModel?.Nodes.Where(x => x.IsTransient).ToList();
+            if (transientNodes != null && transientNodes.Any())
             {
                 dynamoViewModel.Model.ExecuteCommand(new DynamoModel.DeleteModelCommand(transientNodes.Select(x => x.Id), true));
                 //remove the deletion of the elements from the undo stack
